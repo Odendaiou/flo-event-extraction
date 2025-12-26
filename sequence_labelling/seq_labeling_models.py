@@ -5,7 +5,8 @@ from transformers.modeling_outputs import SequenceClassifierOutput
 from transformers import BertConfig, BertModel
 from tqdm import tqdm
 from math import log
-from transformers import BertForTokenClassification, AdamW, get_linear_schedule_with_warmup
+from torch.optim import AdamW
+from transformers import get_linear_schedule_with_warmup
 
 class seq2SeqBERTMC(torch.nn.Module):
     def __init__(self, tokenizer, labels_to_ids, pos_weights):

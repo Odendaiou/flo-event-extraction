@@ -12,29 +12,36 @@ import pickle
 from tqdm import tqdm
 import json
 import os, time
-from sequence_labelling.seq_labeling_models import seq2SeqBERTMC
+from seq_labeling_models import seq2SeqBERTMC
 from transformers import TrainingArguments, EarlyStoppingCallback
 from transformers import Trainer
 import evaluate, math
 from itertools import groupby, chain
 from typing import Iterable, Tuple, TypeVar
+import inspect
 
 import wandb, statistics
 
 
-run = wandb.init(project="MailEx", entity="salokr", mode="offline")
+# stdout のログ量を抑える（巨大な予測JSONを表示しない）
+QUIET_STDOUT_LOGS = True
+DEBUG_STDOUT_LOGS = False
+
+
+run = wandb.init(project="MailEx", entity="s2257253-", mode="offline")
 wandb.run.name="Argument_Only"
 
 
 T = TypeVar("T")
 device = 'cuda' if cuda.is_available() else 'cpu'
-print(device)
+if not QUIET_STDOUT_LOGS:
+    print(device)
 
 MAX_LEN = 512
 TRAIN_BATCH_SIZE = 4
 VALID_BATCH_SIZE = 4
-EPOCHS = 50
-LEARNING_RATE = 1e-05
+EPOCHS = 1
+LEARNING_RATE = 1e-06
 MAX_GRAD_NORM = 10
 
 
@@ -80,9 +87,11 @@ def assert_model(TRAIN_DATA, model):
     msr_labels = inputs["msr_labels"].unsqueeze(0).to(device)
     outputs = model(input_ids, attention_mask=attention_mask, labels=labels, loss_mask = loss_mask, offset_mapping = offset_mapping, trigger_span = trigger_span, msr_labels = msr_labels)
     initial_loss = outputs[0]
-    print('initial_loss', initial_loss)
+    if DEBUG_STDOUT_LOGS:
+        print('initial_loss', initial_loss)
     tr_logits = outputs[1]["logits"]
-    print(tr_logits.shape)
+    if DEBUG_STDOUT_LOGS:
+        print(tr_logits.shape)
 
 
 def extract_trigger_and_event_type_from_label(email):
@@ -259,7 +268,8 @@ class TriggerOnceTrainer(Trainer):
         self.dumpObject([batch_ground_truths, batch_predictions], f"./{self.args.output_dir}/{type_}_span_ID_epoch_{epoch}.res")
         with open(f"./{self.args.output_dir}/{type_}_JSON_epoch_{epoch}.json", "w") as f:
             json.dump(my_json, f, indent = 4)
-        metrics = evaluate.trigger_scores(my_json)
+        # verbose=False: tqdm/print を抑えて、数値メトリクスだけ返す
+        metrics = evaluate.trigger_scores(my_json, verbose=False, return_threads=False)
         for key in list(metrics.keys()):
             if(not key.startswith("eval_")): 
                 metrics["eval_" + key] = metrics.pop(key)
@@ -377,6 +387,18 @@ def post_processing_function(examples, features, outputs, stage = "eval"):
     return EvalPrediction(predictions=formatted_predictions, label_ids=references)
 
 
+def make_training_args_safe(**kwargs):
+    # TrainingArguments.__init__ の引数名一覧を取得してフィルタ
+    sig = inspect.signature(TrainingArguments.__init__)
+    valid_keys = [k for k in sig.parameters.keys() if k != 'self']
+    filtered = {k: v for k, v in kwargs.items() if k in valid_keys}
+    removed = set(kwargs.keys()) - set(filtered.keys())
+    if removed:
+        if DEBUG_STDOUT_LOGS:
+            print(f"[make_training_args_safe] removed unsupported TrainingArguments keys: {removed}")
+    return TrainingArguments(**filtered)
+
+
 
 def train(TRAIN_DATA, VALID_DATA, TEST_DATA, tokenizer, args):
     global labels_to_ids, ids_to_labels, pos_weights
@@ -391,7 +413,9 @@ def train(TRAIN_DATA, VALID_DATA, TEST_DATA, tokenizer, args):
     model.to(device)
     assert_model(TRAIN_DATA, model)
     ###
-    training_args = TrainingArguments(output_dir="args_test_new" , learning_rate=LEARNING_RATE, per_device_train_batch_size=TRAIN_BATCH_SIZE, per_device_eval_batch_size=VALID_BATCH_SIZE, num_train_epochs=EPOCHS, evaluation_strategy="epoch", eval_steps = 1, save_steps = 1,save_strategy="epoch", save_total_limit = 5, load_best_model_at_end=True, push_to_hub=False, metric_for_best_model = 'eval_f_score_class', greater_is_better = True, logging_first_step=True, report_to=['wandb'])
+    # `make_training_args_safe` をやめて、直接 TrainingArguments を呼び出します。
+# evaluation_strategy と save_strategy を両方とも "steps" に揃えます。
+    training_args = TrainingArguments(output_dir="args_test_new" , learning_rate=LEARNING_RATE, per_device_train_batch_size=TRAIN_BATCH_SIZE, per_device_eval_batch_size=VALID_BATCH_SIZE, num_train_epochs=EPOCHS, eval_strategy="steps", save_strategy="steps", eval_steps = 1, save_steps = 1, save_total_limit = 5, load_best_model_at_end=True, push_to_hub=False, metric_for_best_model = 'eval_f_score_class', greater_is_better = True, logging_first_step=True, report_to=['wandb'])
     trainer = TriggerOnceTrainer(model=model, args=training_args, train_dataset=TRAIN_DATA, eval_dataset=VALID_DATA, tokenizer=tokenizer, callbacks = [EarlyStoppingCallback(early_stopping_patience=15, )], post_process_function=post_processing_function,)
     trainer.labels_to_ids=labels_to_ids
     trainer.ids_to_labels=ids_to_labels
@@ -414,7 +438,8 @@ for t in TEST_DATA:
 
 # print((TEST_DATA.labels_to_ids))
 train_eval_history, trainer = train(TRAIN_DATA, VALID_DATA, TEST_DATA, tokenizer, {})
-print(train_eval_history)
+if DEBUG_STDOUT_LOGS:
+    print(train_eval_history)
 wandb.finish()
 trainer.evaluate(TEST_DATA)
 

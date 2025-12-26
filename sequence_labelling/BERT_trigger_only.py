@@ -12,7 +12,7 @@ import pickle
 from tqdm import tqdm
 import json
 import os, time
-from sequence_labelling.seq_labeling_models import seq2SeqBERTMC
+from seq_labeling_models import seq2SeqBERTMC
 from transformers import TrainingArguments, EarlyStoppingCallback
 from transformers import Trainer
 import evaluate, math
@@ -22,7 +22,7 @@ from typing import Iterable, Tuple, TypeVar
 import wandb, statistics, pprint
 
 
-run = wandb.init(project="MailEx", entity="salokr", mode="offline")
+run = wandb.init(project="MailEx", entity="s2257253-", mode="offline")
 wandb.run.name="current_turn_only"
 
 
@@ -31,10 +31,11 @@ device = 'cuda' if cuda.is_available() else 'cpu'
 print(device)
 
 MAX_LEN = 512
+
 TRAIN_BATCH_SIZE = 4
 VALID_BATCH_SIZE = 4
 EPOCHS = 100
-LEARNING_RATE = 1e-05
+LEARNING_RATE = 1e-06
 MAX_GRAD_NORM = 10
 
 
@@ -245,7 +246,7 @@ class TriggerOnceTrainer(Trainer):
         self.dumpObject([batch_ground_truths, batch_predictions], f"./{self.args.output_dir}/{type_}_span_ID_epoch_{epoch}.res")
         with open(f"./{self.args.output_dir}/{type_}_JSON_epoch_{epoch}.json", "w") as f:
             json.dump(my_json, f, indent = 4)
-        metrics = evaluate.trigger_scores(my_json)
+        metrics = evaluate.trigger_scores(my_json, verbose=False, return_threads=False)
         _ = metrics.pop("threads")
         for key in list(metrics.keys()):
             if(not key.startswith("eval_")): 
@@ -360,7 +361,8 @@ def train(TRAIN_DATA, VALID_DATA, TEST_DATA, tokenizer, args):
     model.to(device)
     assert_model(TRAIN_DATA, model)
     ###
-    training_args = TrainingArguments(output_dir="BIOS_class_w_history" , learning_rate=LEARNING_RATE, per_device_train_batch_size=TRAIN_BATCH_SIZE, per_device_eval_batch_size=VALID_BATCH_SIZE, num_train_epochs=EPOCHS, evaluation_strategy="epoch", eval_steps = 1, save_steps = 1,save_strategy="epoch", save_total_limit = 5, load_best_model_at_end=True, push_to_hub=False, metric_for_best_model = 'eval_EM_trigger_class_scores_F1', greater_is_better = True, logging_first_step=True, report_to=['wandb'])
+    # ↓↓↓ ここの行を修正しました ↓↓↓
+    training_args = TrainingArguments(output_dir="BIOS_class_w_history" , learning_rate=LEARNING_RATE, per_device_train_batch_size=TRAIN_BATCH_SIZE, per_device_eval_batch_size=VALID_BATCH_SIZE, num_train_epochs=EPOCHS, eval_strategy="epoch", eval_steps = 1, save_steps = 1,save_strategy="epoch", save_total_limit = 5, load_best_model_at_end=True, push_to_hub=False, metric_for_best_model = 'eval_EM_trigger_class_scores_F1', greater_is_better = True, logging_first_step=True, report_to=['wandb'])
     trainer = TriggerOnceTrainer(model=model, args=training_args, train_dataset=TRAIN_DATA, eval_dataset=VALID_DATA, tokenizer=tokenizer, callbacks = [EarlyStoppingCallback(early_stopping_patience=15, )], post_process_function=post_processing_function,)
     trainer.labels_to_ids=labels_to_ids
     trainer.ids_to_labels=ids_to_labels
