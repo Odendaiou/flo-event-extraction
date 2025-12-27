@@ -22,7 +22,9 @@ from typing import Iterable, Tuple, TypeVar
 import wandb, statistics, pprint
 
 
-run = wandb.init(project="MailEx", entity="s2257253-", mode="offline")
+_WANDB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "wandb")
+os.makedirs(_WANDB_DIR, exist_ok=True)
+run = wandb.init(project="MailEx", entity="s2257253-", mode="offline", dir=_WANDB_DIR)
 wandb.run.name="current_turn_only"
 
 

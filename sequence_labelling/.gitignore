@@ -1,0 +1,32 @@
+# Byte-compiled / cache
+__pycache__/
+*.pyc
+
+# OS/editor noise
+__MACOSX/
+.DS_Store
+
+# Logs / pids / nohup
+*.log
+*.pid
+nohup.out
+
+# Training outputs / checkpoints
+BIOS_class_w_history/
+args_test_new/
+checkpoint-*/
+*.res
+
+# W&B offline runs
+wandb/
+
+# Local dataset / archives (do not commit MailEx data)
+data/
+data.zip
+
+# Large debug dumps
+trigger_train_data.json
+
+# One-off backups
+*0912.py
+*0523.py
